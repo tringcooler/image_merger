@@ -75,8 +75,12 @@ class c_img_merger:
         dd = np.insert(dd, 0, 0)
         dd = np.append(dd, 0)
         from matplotlib import pyplot as plt
+        b, a = scipy.signal.butter(3, 0.03)
+        dsumf = scipy.signal.filtfilt(b, a, dsum)
         plt.plot(dsum)
+        plt.plot(dsumf)
         plt.show()
+        breakpoint()
         pks_f = scipy.signal.find_peaks(np.clip(-dd, 0, None))[0]
         pks_b = scipy.signal.find_peaks(np.clip(dd, 0, None))[0]
         dirty = False
