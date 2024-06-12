@@ -23,41 +23,6 @@ def cross_image(im1, im2, exact=True):
     return scipy.signal.fftconvolve(im1_gray, im2_gray[::-1,::-1], mode='same')
     #return scipy.signal.fftconvolve(im1_gray[::-1,::-1], im2_gray, mode='same')[::-1,::-1]
 
-# from https://stackoverflow.com/questions/3684484/peak-detection-in-a-2d-array
-# failed, not used
-from scipy.ndimage.filters import maximum_filter
-from scipy.ndimage.morphology import generate_binary_structure, binary_erosion
-def detect_peaks(image):
-    """
-    Takes an image and detect the peaks usingthe local maximum filter.
-    Returns a boolean mask of the peaks (i.e. 1 when
-    the pixel's value is the neighborhood maximum, 0 otherwise)
-    """
-
-    # define an 8-connected neighborhood
-    neighborhood = generate_binary_structure(2,2)
-
-    #apply the local maximum filter; all pixel of maximal value 
-    #in their neighborhood are set to 1
-    local_max = maximum_filter(image, footprint=neighborhood)==image
-    #local_max is a mask that contains the peaks we are 
-    #looking for, but also the background.
-    #In order to isolate the peaks we must remove the background from the mask.
-
-    #we create the mask of the background
-    background = (image==0)
-
-    #a little technicality: we must erode the background in order to 
-    #successfully subtract it form local_max, otherwise a line will 
-    #appear along the background border (artifact of the local maximum filter)
-    eroded_background = binary_erosion(background, structure=neighborhood, border_value=1)
-
-    #we obtain the final mask, containing only peaks, 
-    #by removing the background from the local_max mask (xor operation)
-    detected_peaks = local_max ^ eroded_background
-
-    return detected_peaks
-
 class c_img_merger:
 
     def __init__(self, imgs_fn):
@@ -68,6 +33,15 @@ class c_img_merger:
         for fn in imgs_fn:
             self.imgs.append(
                 IMG.open(fn))
+
+    def _hint_rect(self, im, rct, clr=(255, 0, 0, 100)):
+        cim = im.convert('RGBA')
+        him = IMG.new('RGBA', cim.size)
+        dr = IMGDRW.Draw(him)
+        dr.rectangle((rct[0], rct[1], rct[2] + rct[0], rct[3] + rct[1]), fill=clr)
+        cim.alpha_composite(him)
+        cim.show()
+        return cim
 
     def _cmp_window(self, src, win):
         sh, sw, *_ = src.shape
@@ -81,8 +55,6 @@ class c_img_merger:
         #pks = ndif[scipy.signal.find_peaks(ndif[:,tw])[0], tw]
         #pks = [(i - wh / 2, ndif[i, tw])for i in scipy.signal.find_peaks(ndif[:,tw])[0] if ndif[i, tw] > 250]
         #print(pks)
-        #pks = detect_peaks(ndif) # not used
-        #print(np.where(pks))
         #print(th - wh / 2, tw - ww / 2)
         return th - wh / 2, tw - ww / 2
 
@@ -96,6 +68,46 @@ class c_img_merger:
         wb = None if wh is None else wy + wh
         sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
         return sx - wx, sy - wy
+
+    def _cmp_cover_axis(self, dif, rng, axs):
+        dsum = dif.sum(1 - axs)
+        dd = np.diff(dsum)
+        dd = np.insert(dd, 0, 0)
+        dd = np.append(dd, 0)
+        from matplotlib import pyplot as plt
+        plt.plot(dsum)
+        plt.show()
+        pks_f = scipy.signal.find_peaks(np.clip(-dd, 0, None))[0]
+        pks_b = scipy.signal.find_peaks(np.clip(dd, 0, None))[0]
+        dirty = False
+        crng = [0, len(dsum)]
+        if len(pks_b):
+            pk = pks_b[-1] - 1
+            crng[1] = pk
+            rng[axs][1] = rng[axs][0] + pk
+            dirty = True
+        if len(pks_f):
+            pk = pks_f[0]
+            crng[0] = pk
+            rng[axs][0] += pk
+            dirty = True
+        if dirty:
+            crng_idx = [..., ...]
+            crng_idx[axs] = slice(*crng)
+            print(f'trim {axs} to rng: {rng}')
+            return self._cmp_cover_axis(
+                dif[tuple(crng_idx)], rng, 1 - axs)
+        else:
+            return rng
+
+    def _cmp_cover(self, src, dst, thr = 0):
+        dif = np.array(IMGCHPS.difference(src, dst))
+        dif = np.sum(dif.astype('float'), axis=2) #/ (255 * 3)
+        rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
+        crng = self._cmp_cover_axis(dif, rng, 0)
+        self._hint_rect(dst, (
+            crng[1][0], crng[0][0],
+            crng[1][1]-crng[1][0], crng[0][1]-crng[0][0]))
 
     def _img_paste(self, im1, im2, wrct, alpha2=None):
         sx, sy = self._cmp_imgs(im1, im2, wrct)
@@ -115,11 +127,14 @@ class c_img_merger:
         rsz = (
             max(sx1 + im1.size[0], sx2 + im2.size[0]),
             max(sy1 + im1.size[1], sy2 + im2.size[1]))
-        rim = IMG.new('RGBA', rsz)
+        rim = IMG.new('RGB', rsz)
         rim.paste(im1, (sx1, sy1))
+        cvsim = rim.crop((sx2, sy2, sx2+im2.size[0], sy2+im2.size[1]))
+        self._cmp_cover(cvsim, im2)
         if alpha2 is None:
             rim.paste(im2, (sx2, sy2))
         else:
+            rim = rim.convert('RGBA')
             im2a = IMG.new('L', im2.size, alpha2)
             im2c = im2.copy()
             im2c.putalpha(im2a)
@@ -145,30 +160,35 @@ class c_img_merger:
             crp2 = [0, 0, *im2.size]
             wx, wy = wsz
             if wx is not None:
+                if isinstance(wx, (tuple, list)):
+                    wxb = wx[0]
+                    wx = wx[1]
+                    wrct[0] += wxb
+                    wrct[2] -= wxb
                 if wx >= 1:
                     crp2[0] = hl
-                    wrct[0] = 0
+                    wrct[0] = wxb
                     wrct[2] = min(wrct[2], wx)
                 else:
                     nwh = wrct[2] * wx
                     wrct[0] += int((wrct[2] - nwh) / 2)
                     wrct[2] = int(nwh)
             if wy is not None:
+                if isinstance(wy, (tuple, list)):
+                    wyb = wy[0]
+                    wy = wy[1]
+                    wrct[1] += wyb
+                    wrct[3] -= wyb
                 if wy >= 1:
                     crp2[1] = ht
-                    wrct[1] = 0
+                    wrct[1] = wyb
                     wrct[3] = min(wrct[3], wy)
                 else:
                     nww = wrct[3] * wy
                     wrct[1] += int((wrct[3] - nww) / 2)
                     wrct[3] = int(nww)
             cim2 = im2.crop(crp2)
-            #him2c = cim2.convert('RGBA')
-            #him2 = IMG.new('RGBA', im2.size)
-            #dr = IMGDRW.Draw(him2)
-            #dr.rectangle((wrct[0], wrct[1], wrct[2] + wrct[0], wrct[3] + wrct[1]), fill=(255, 0, 0, 100))
-            #him2c.alpha_composite(him2)
-            #him2c.show()
+            #self._hint_rect(cim2, wrct)
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
@@ -197,4 +217,4 @@ if __name__ == '__main__':
         return im
     
     im = main(wpath)
-    r = im._img_merge(im.imgs[0], im.imgs[1], (0.8, 307))
+    r = im._img_merge(im.imgs[0], im.imgs[1], (0.8, (10, 307)))
