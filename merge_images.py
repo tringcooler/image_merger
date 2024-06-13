@@ -67,44 +67,6 @@ class c_img_merger:
         sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
         return sx - wx, sy - wy + 1
 
-    def _cmp_cover_axis(self, dif, rng, axs):
-        dsum = dif.sum(1 - axs)
-        dd = np.diff(dsum)
-        dd = np.insert(dd, 0, 0)
-        dd = np.append(dd, 0)
-        from matplotlib import pyplot as plt
-        b, a = scipy.signal.butter(3, 0.1)
-        dsumf = scipy.signal.filtfilt(b, a, dsum)
-        plt.plot(dsum)
-        plt.plot(dsumf)
-        #plt.plot(dd)
-        #plt.plot(np.diff(dsumf))
-        #plt.plot(np.cumsum(dsum))
-        plt.show()
-        breakpoint()
-        pks_f = scipy.signal.find_peaks(np.clip(-dd, 0, None))[0]
-        pks_b = scipy.signal.find_peaks(np.clip(dd, 0, None))[0]
-        dirty = False
-        crng = [0, len(dsum)]
-        if len(pks_b):
-            pk = pks_b[-1] - 1
-            crng[1] = pk
-            rng[axs][1] = rng[axs][0] + pk
-            dirty = True
-        if len(pks_f):
-            pk = pks_f[0]
-            crng[0] = pk
-            rng[axs][0] += pk
-            dirty = True
-        if dirty:
-            crng_idx = [..., ...]
-            crng_idx[axs] = slice(*crng)
-            print(f'trim {axs} to rng: {rng}')
-            return self._cmp_cover_axis(
-                dif[tuple(crng_idx)], rng, 1 - axs)
-        else:
-            return rng
-
     def _cmp_cover_center(self, dif, cent, axis, step, thr):
         alen = dif.shape[axis]
         raxis = 1 - axis
@@ -136,20 +98,18 @@ class c_img_merger:
             cur += step
         return rseq
 
-    def _cmp_cover(self, src, dst, thr = 0):
+    def _cmp_cover(self, src, dst, thr = 30):
         cdif = IMGCHPS.difference(src, dst)
         #cdif.show()
         dif = np.array(cdif)
-        fdif = np.sum(dif.astype('float'), axis=2) / 3
-        b, a = scipy.signal.butter(3, 0.03)
-        fdif = scipy.signal.filtfilt(b, a, fdif, 1)
-        fdif = scipy.signal.filtfilt(b, a, fdif, 0)
-        print('max dif:', fdif[50:,...].max() * 3)
-        tdif = IMG.fromarray(fdif * 10)
-        #tdif = tdif.filter(IMGFLT.SMOOTH)
-        tdif.show()
         dif = np.sum(dif.astype('float'), axis=2) #/ (255 * 3)
+        b, a = scipy.signal.butter(3, 0.03)
+        dif = scipy.signal.filtfilt(b, a, dif, 1)
+        dif = scipy.signal.filtfilt(b, a, dif, 0)
         #print('max dif:', dif[50:,...].max())
+        #tdif = IMG.fromarray(dif * 3)
+        #tdif = tdif.filter(IMGFLT.SMOOTH)
+        #tdif.show()
         dif[dif<=thr] = 0
         dif[dif>thr] = 1
         #IMG.fromarray(dif * 255).show()
@@ -183,7 +143,7 @@ class c_img_merger:
         rim.paste(im1, (sx1, sy1))
         cvsim = rim.crop((sx2+wrct[0], sy2+wrct[1], sx2+wrct[2], sy2+wrct[3]))
         cvim2 = im2.crop(wrct)
-        self._cmp_cover(cvsim, cvim2, 20)
+        self._cmp_cover(cvsim, cvim2)
         if alpha2 is None:
             rim.paste(im2, (sx2, sy2))
         else:
