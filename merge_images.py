@@ -65,7 +65,7 @@ class c_img_merger:
         dst = np.array(im2)
         wx, wy, wr, wb = wrct
         sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
-        return sx - wx, sy - wy + 1
+        return sx - wx, sy - wy + 1 # I don't know why, but +1 is better
 
     def _cmp_cover_center(self, dif, cent, axis, step, thr):
         alen = dif.shape[axis]
@@ -76,6 +76,9 @@ class c_img_merger:
         cur = cent[axis]
         rcent = cent[raxis]
         rseq = []
+        max_area = 0
+        max_box = [0, 0, 0, 0]
+        cur_rel = 0
         while 0 <= cur < alen:
             cur_idx[axis] = cur
             cur_cent[axis] = cur
@@ -95,8 +98,20 @@ class c_img_merger:
                     rcur += rstep
                 rpair.append(rv)
             rseq.append(rpair)
+            carea = sum(rpair) * cur_rel
+            if carea > max_area:
+                #print(cur_rel, rpair, carea)
+                max_area = carea
+                max_box[raxis + step + 1] = cur_rel * step
+                assert max_box[raxis - step + 1] == 0
+                max_box[axis] = -rpair[0]
+                max_box[axis + 2] = rpair[1]
+            #else:
+            #    print('-', cur_rel, rpair, carea)
             cur += step
-        return rseq
+            cur_rel += 1
+        #print('max box:', max_box, cent)
+        return max_box[0]+cent[1], max_box[1]+cent[0], max_box[2]+cent[1], max_box[3]+cent[0]
 
     def _cmp_cover(self, src, dst, thr = 30):
         cdif = IMGCHPS.difference(src, dst)
@@ -115,43 +130,46 @@ class c_img_merger:
         #IMG.fromarray(dif * 255).show()
         #rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
         #crng = self._cmp_cover_axis(dif, rng, 0)
-        rseq = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
-        #breakpoint()
-        #self._hint_rect(dst, (
-        #    crng[1][0], crng[0][0],
-        #    crng[1][1], crng[0][1]))
+        cbx = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
+        print('cover box:', cbx)
+        #self._hint_rect(dst, cbx)
+        return cbx[:2] # only compared half window
 
-    def _img_paste(self, im1, im2, wrct, alpha2=None):
+    def _img_paste(self, im1, im2, wrct, cut_axes, alpha2=None):
         sx, sy = self._cmp_imgs(im1, im2, wrct)
-        print(sx, sy)
+        print('shift:', (sx, sy))
+        s1 = [0, 0]
+        s2 = [0, 0]
         if sx < 0:
-            sx1 = -int(sx)
-            sx2 = 0
+            s1[0] = -int(sx)
         else:
-            sx1 = 0
-            sx2 = int(sx)
+            s2[0] = int(sx)
         if sy < 0:
-            sy1 = -int(sy)
-            sy2 = 0
+            s1[1] = -int(sy)
         else:
-            sy1 = 0
-            sy2 = int(sy)
+            s2[1] = int(sy)
         rsz = (
-            max(sx1 + im1.size[0], sx2 + im2.size[0]),
-            max(sy1 + im1.size[1], sy2 + im2.size[1]))
+            max(s1[0] + im1.size[0], s2[0] + im2.size[0]),
+            max(s1[1] + im1.size[1], s2[1] + im2.size[1]))
         rim = IMG.new('RGB', rsz)
-        rim.paste(im1, (sx1, sy1))
-        cvsim = rim.crop((sx2+wrct[0], sy2+wrct[1], sx2+wrct[2], sy2+wrct[3]))
-        cvim2 = im2.crop(wrct)
-        self._cmp_cover(cvsim, cvim2)
+        rim.paste(im1, s1)
+        if cut_axes:
+            cvsim = rim.crop((s2[0]+wrct[0], s2[1]+wrct[1], s2[0]+wrct[2], s2[1]+wrct[3]))
+            cvim2 = im2.crop(wrct)
+            cvtp = self._cmp_cover(cvsim, cvim2)
+            crp2 = [0, 0, *im2.size]
+            for i in cut_axes:
+                crp2[i] = wrct[i] + cvtp[i]
+                s2[i] += crp2[i]
+            im2 = im2.crop(crp2)
         if alpha2 is None:
-            rim.paste(im2, (sx2, sy2))
+            rim.paste(im2, s2)
         else:
             rim = rim.convert('RGBA')
             im2a = IMG.new('L', im2.size, alpha2)
             im2c = im2.copy()
             im2c.putalpha(im2a)
-            rim.alpha_composite(im2c, (sx2, sy2))
+            rim.alpha_composite(im2c, tuple(s2))
         return rim
 
     def _img_trim_head(self, im1, im2):
@@ -167,6 +185,7 @@ class c_img_merger:
             return
         hl, ht, hr, hb = hbb
         wrct = [hl, ht, hr, hb]
+        cut_axes = []
         if wsz[0] is None and wsz[1] is None:
             cim2 = im2
         else:
@@ -181,6 +200,7 @@ class c_img_merger:
                     crp2[0] = hl
                     wrct[0] = wxb
                     wrct[2] = min(wrct[2], wxb + wx)
+                    cut_axes.append(0)
                 else:
                     dww = int((wrct[2] - wrct[0]) * (1 - wx) / 2)
                     wrct[0] += dww
@@ -194,6 +214,7 @@ class c_img_merger:
                     crp2[1] = ht
                     wrct[1] = wyb
                     wrct[3] = min(wrct[3], wyb + wy)
+                    cut_axes.append(1)
                 else:
                     dwh = int((wrct[3] - wrct[1]) * (1 - wy) / 2)
                     wrct[1] += dwh
@@ -203,7 +224,8 @@ class c_img_merger:
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
-        return self._img_paste(im1, cim2, wrct, 100)
+        #return self._img_paste(im1, cim2, wrct, cut_axes, 100)
+        return self._img_paste(im1, cim2, wrct, cut_axes)
 
 def iter_imgs(path, ext = None):
     for fn in os.listdir(path):
@@ -228,4 +250,4 @@ if __name__ == '__main__':
         return im
     
     im = main(wpath)
-    r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
+    r = im._img_merge(im.imgs[0], im.imgs[1], (0.8, (0, 307)))
