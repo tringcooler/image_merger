@@ -2,7 +2,9 @@
 # coding: utf-8
 
 import os, os.path
-from PIL import Image as IMG, ImageChops as IMGCHPS, ImageDraw as IMGDRW
+from PIL import (
+    Image as IMG, ImageChops as IMGCHPS,
+    ImageDraw as IMGDRW, ImageFilter as IMGFLT)
 
 import numpy as np
 import scipy.signal
@@ -63,7 +65,7 @@ class c_img_merger:
         dst = np.array(im2)
         wx, wy, wr, wb = wrct
         sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
-        return sx - wx, sy - wy
+        return sx - wx, sy - wy + 1
 
     def _cmp_cover_axis(self, dif, rng, axs):
         dsum = dif.sum(1 - axs)
@@ -103,15 +105,61 @@ class c_img_merger:
         else:
             return rng
 
+    def _cmp_cover_center(self, dif, cent, axis, step, thr):
+        alen = dif.shape[axis]
+        raxis = 1 - axis
+        rlen = dif.shape[raxis]
+        cur_idx = [slice(None),slice(None)]
+        cur_cent = cent.copy()
+        cur = cent[axis]
+        rcent = cent[raxis]
+        rseq = []
+        while 0 <= cur < alen:
+            cur_idx[axis] = cur
+            cur_cent[axis] = cur
+            if dif[tuple(cur_cent)] > thr:
+                break
+            row = dif[tuple(cur_idx)]
+            rpair = []
+            for rstep in (1, -1):
+                rcur = rcent
+                rcur_pos = cur_cent.copy()
+                rv = 0
+                while 0 <= rcur < rlen:
+                    rcur_pos[raxis] = rcur
+                    if dif[tuple(rcur_pos)] > thr:
+                        break
+                    rv += 1
+                    rcur += rstep
+                rpair.append(rv)
+            rseq.append(rpair)
+            cur += step
+        return rseq
+
     def _cmp_cover(self, src, dst, thr = 0):
-        dif = np.array(IMGCHPS.difference(src, dst))
+        cdif = IMGCHPS.difference(src, dst)
+        #cdif.show()
+        dif = np.array(cdif)
+        fdif = np.sum(dif.astype('float'), axis=2) / 3
+        b, a = scipy.signal.butter(3, 0.03)
+        fdif = scipy.signal.filtfilt(b, a, fdif, 1)
+        fdif = scipy.signal.filtfilt(b, a, fdif, 0)
+        print('max dif:', fdif[50:,...].max() * 3)
+        tdif = IMG.fromarray(fdif * 10)
+        #tdif = tdif.filter(IMGFLT.SMOOTH)
+        tdif.show()
         dif = np.sum(dif.astype('float'), axis=2) #/ (255 * 3)
+        #print('max dif:', dif[50:,...].max())
+        dif[dif<=thr] = 0
         dif[dif>thr] = 1
-        rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
-        crng = self._cmp_cover_axis(dif, rng, 0)
-        self._hint_rect(dst, (
-            crng[1][0], crng[0][0],
-            crng[1][1], crng[0][1]))
+        #IMG.fromarray(dif * 255).show()
+        #rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
+        #crng = self._cmp_cover_axis(dif, rng, 0)
+        rseq = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
+        #breakpoint()
+        #self._hint_rect(dst, (
+        #    crng[1][0], crng[0][0],
+        #    crng[1][1], crng[0][1]))
 
     def _img_paste(self, im1, im2, wrct, alpha2=None):
         sx, sy = self._cmp_imgs(im1, im2, wrct)
@@ -135,7 +183,7 @@ class c_img_merger:
         rim.paste(im1, (sx1, sy1))
         cvsim = rim.crop((sx2+wrct[0], sy2+wrct[1], sx2+wrct[2], sy2+wrct[3]))
         cvim2 = im2.crop(wrct)
-        self._cmp_cover(cvsim, cvim2)
+        self._cmp_cover(cvsim, cvim2, 20)
         if alpha2 is None:
             rim.paste(im2, (sx2, sy2))
         else:
@@ -220,4 +268,4 @@ if __name__ == '__main__':
         return im
     
     im = main(wpath)
-    r = im._img_merge(im.imgs[0], im.imgs[1], (0.8, (10, 307)))
+    r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
