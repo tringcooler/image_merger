@@ -170,6 +170,7 @@ class c_img_merger:
             im2c = im2.copy()
             im2c.putalpha(im2a)
             rim.alpha_composite(im2c, tuple(s2))
+            rim = rim.convert('RGB')
         return rim
 
     def _img_trim_head(self, im1, im2):
@@ -196,6 +197,8 @@ class c_img_merger:
                     wxb = wx[0]
                     wx = wx[1]
                     wrct[0] += wxb
+                else:
+                    wxb = 0
                 if wx >= 1:
                     crp2[0] = hl
                     wrct[0] = wxb
@@ -210,6 +213,8 @@ class c_img_merger:
                     wyb = wy[0]
                     wy = wy[1]
                     wrct[1] += wyb
+                else:
+                    wyb = 0
                 if wy >= 1:
                     crp2[1] = ht
                     wrct[1] = wyb
@@ -220,12 +225,20 @@ class c_img_merger:
                     wrct[1] += dwh
                     wrct[3] -= dwh
             cim2 = im2.crop(crp2)
-            #self._hint_rect(cim2, wrct)
+            self._hint_rect(cim2, wrct)
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
-        #return self._img_paste(im1, cim2, wrct, cut_axes, 100)
-        return self._img_paste(im1, cim2, wrct, cut_axes)
+        return self._img_paste(im1, cim2, wrct, cut_axes, 100)
+        #return self._img_paste(im1, cim2, wrct, cut_axes)
+
+    def merge_all(self):
+        cur_im = self.imgs[-1]
+        for ii in range(len(self.imgs) - 2, -1, -1):
+            src_im = self.imgs[ii]
+            cur_im = self._img_merge(src_im, cur_im, (0.8, 300))
+            #cur_im.show();breakpoint()
+        return cur_im
 
 def iter_imgs(path, ext = None):
     for fn in os.listdir(path):
@@ -250,4 +263,7 @@ if __name__ == '__main__':
         return im
     
     im = main(wpath)
-    r = im._img_merge(im.imgs[0], im.imgs[1], (0.8, (0, 307)))
+    #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
+    r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
+    r.show()
+    #r = im.merge_all()
