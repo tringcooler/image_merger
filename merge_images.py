@@ -34,11 +34,11 @@ class c_img_merger:
             self.imgs.append(
                 IMG.open(fn))
 
-    def _hint_rect(self, im, rct, clr=(255, 0, 0, 100)):
+    def _hint_rect(self, im, bx, clr=(255, 0, 0, 100)):
         cim = im.convert('RGBA')
         him = IMG.new('RGBA', cim.size)
         dr = IMGDRW.Draw(him)
-        dr.rectangle((rct[0], rct[1], rct[2] + rct[0], rct[3] + rct[1]), fill=clr)
+        dr.rectangle((bx[0], bx[1], bx[2], bx[3]), fill=clr)
         cim.alpha_composite(him)
         cim.show()
         return cim
@@ -61,11 +61,7 @@ class c_img_merger:
     def _cmp_imgs(self, im1, im2, wrct):
         src = np.array(im1)
         dst = np.array(im2)
-        wx, wy, ww, wh = wrct
-        wx = 0 if wx is None else wx
-        wy = 0 if wy is None else wy
-        wr = None if ww is None else wx + ww
-        wb = None if wh is None else wy + wh
+        wx, wy, wr, wb = wrct
         sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
         return sx - wx, sy - wy
 
@@ -75,10 +71,13 @@ class c_img_merger:
         dd = np.insert(dd, 0, 0)
         dd = np.append(dd, 0)
         from matplotlib import pyplot as plt
-        b, a = scipy.signal.butter(3, 0.03)
+        b, a = scipy.signal.butter(3, 0.1)
         dsumf = scipy.signal.filtfilt(b, a, dsum)
         plt.plot(dsum)
         plt.plot(dsumf)
+        #plt.plot(dd)
+        #plt.plot(np.diff(dsumf))
+        #plt.plot(np.cumsum(dsum))
         plt.show()
         breakpoint()
         pks_f = scipy.signal.find_peaks(np.clip(-dd, 0, None))[0]
@@ -107,11 +106,12 @@ class c_img_merger:
     def _cmp_cover(self, src, dst, thr = 0):
         dif = np.array(IMGCHPS.difference(src, dst))
         dif = np.sum(dif.astype('float'), axis=2) #/ (255 * 3)
+        dif[dif>thr] = 1
         rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
         crng = self._cmp_cover_axis(dif, rng, 0)
         self._hint_rect(dst, (
             crng[1][0], crng[0][0],
-            crng[1][1]-crng[1][0], crng[0][1]-crng[0][0]))
+            crng[1][1], crng[0][1]))
 
     def _img_paste(self, im1, im2, wrct, alpha2=None):
         sx, sy = self._cmp_imgs(im1, im2, wrct)
@@ -133,8 +133,9 @@ class c_img_merger:
             max(sy1 + im1.size[1], sy2 + im2.size[1]))
         rim = IMG.new('RGB', rsz)
         rim.paste(im1, (sx1, sy1))
-        cvsim = rim.crop((sx2, sy2, sx2+im2.size[0], sy2+im2.size[1]))
-        self._cmp_cover(cvsim, im2)
+        cvsim = rim.crop((sx2+wrct[0], sy2+wrct[1], sx2+wrct[2], sy2+wrct[3]))
+        cvim2 = im2.crop(wrct)
+        self._cmp_cover(cvsim, cvim2)
         if alpha2 is None:
             rim.paste(im2, (sx2, sy2))
         else:
@@ -157,7 +158,7 @@ class c_img_merger:
         if not hbb:
             return
         hl, ht, hr, hb = hbb
-        wrct = [hl, ht, hr - hl, hb - ht]
+        wrct = [hl, ht, hr, hb]
         if wsz[0] is None and wsz[1] is None:
             cim2 = im2
         else:
@@ -168,29 +169,27 @@ class c_img_merger:
                     wxb = wx[0]
                     wx = wx[1]
                     wrct[0] += wxb
-                    wrct[2] -= wxb
                 if wx >= 1:
                     crp2[0] = hl
                     wrct[0] = wxb
-                    wrct[2] = min(wrct[2], wx)
+                    wrct[2] = min(wrct[2], wxb + wx)
                 else:
-                    nwh = wrct[2] * wx
-                    wrct[0] += int((wrct[2] - nwh) / 2)
-                    wrct[2] = int(nwh)
+                    dww = int((wrct[2] - wrct[0]) * (1 - wx) / 2)
+                    wrct[0] += dww
+                    wrct[2] -= dww
             if wy is not None:
                 if isinstance(wy, (tuple, list)):
                     wyb = wy[0]
                     wy = wy[1]
                     wrct[1] += wyb
-                    wrct[3] -= wyb
                 if wy >= 1:
                     crp2[1] = ht
                     wrct[1] = wyb
-                    wrct[3] = min(wrct[3], wy)
+                    wrct[3] = min(wrct[3], wyb + wy)
                 else:
-                    nww = wrct[3] * wy
-                    wrct[1] += int((wrct[3] - nww) / 2)
-                    wrct[3] = int(nww)
+                    dwh = int((wrct[3] - wrct[1]) * (1 - wy) / 2)
+                    wrct[1] += dwh
+                    wrct[3] -= dwh
             cim2 = im2.crop(crp2)
             #self._hint_rect(cim2, wrct)
             #print(crp2)
