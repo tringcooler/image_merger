@@ -16,14 +16,26 @@ def cross_image(im1, im2, exact=True):
     im1_gray = np.sum(im1.astype('float'), axis=2)
     im2_gray = np.sum(im2.astype('float'), axis=2)
 
-    if not exact:
-        # get rid of the averages, otherwise the results are not good
-        im1_gray -= np.mean(im1_gray)
-        im2_gray -= np.mean(im2_gray)
+    # get rid of the averages, otherwise the results are not good
+    mn1 = np.mean(im1_gray)
+    im1_gray -= mn1
+    im2_gray -= mn1
 
     # calculate the correlation image; note the flipping of onw of the images
     return scipy.signal.fftconvolve(im1_gray, im2_gray[::-1,::-1], mode='same')
     #return scipy.signal.fftconvolve(im1_gray[::-1,::-1], im2_gray, mode='same')[::-1,::-1]
+
+def cross_image_rgb(im1, im2):
+    crs = []
+    for i in range(3):
+        im1_v = im1[:,:,i].astype('float')
+        im2_v = im2[:,:,i].astype('float')
+        cshft = np.mean(im1_v)
+        im1_v -= cshft
+        im2_v -= cshft
+        crs.append(
+            scipy.signal.fftconvolve(im1_v, im2_v[::-1,::-1], mode='same'))
+    return sum(crs)
 
 class c_img_merger:
 
@@ -54,7 +66,8 @@ class c_img_merger:
         sh, sw, *_ = src.shape
         wh, ww, *_ = win.shape
         assert sh >= wh and sw >= ww
-        dif = cross_image(src, win, True)
+        dif = cross_image(src, win)
+        #dif = cross_image_rgb(src, win)
         #IMG.fromarray(dif / dif.max() * 255).show()
         th, tw = np.unravel_index(np.argmax(dif), dif.shape)
         #print(win.T.shape)
@@ -106,7 +119,7 @@ class c_img_merger:
             rseq.append(rpair)
             carea = sum(rpair) * cur_rel
             if carea > max_area:
-                print(cur_rel, rpair, carea)
+                #print(cur_rel, rpair, carea)
                 max_area = carea
                 max_box[raxis + step + 1] = cur_rel * step
                 assert max_box[raxis - step + 1] == 0
@@ -139,7 +152,7 @@ class c_img_merger:
         cbx = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
         print('cover box:', cbx)
         #self._hint_rect(dst, cbx)
-        self._hint_rect(IMG.fromarray(dif * 255), cbx)
+        #self._hint_rect(IMG.fromarray(dif * 255), cbx)
         return cbx[:2] # only compared half window
 
     def _img_paste(self, im1, im2, wrct, cut_axes, alpha2=None):
@@ -244,8 +257,8 @@ class c_img_merger:
         cur_im = self.imgs[-1]
         for ii in range(len(self.imgs) - 2, -1, -1):
             src_im = self.imgs[ii]
-            cur_im = self._img_merge(src_im, cur_im, (0.8, 300))
-            #cur_im.show();breakpoint()
+            cur_im = self._img_merge(src_im, cur_im, (0.8, 200))
+            #cur_im.show();input()
         return cur_im
 
 def iter_imgs(path, ext = None):
@@ -272,6 +285,7 @@ if __name__ == '__main__':
     
     im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
-    r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
-    #r = im.merge_all()
+    #r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
+    #r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(12)
+    r = im.merge_all()
     #r.show()
