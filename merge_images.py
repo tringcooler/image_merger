@@ -36,20 +36,26 @@ class c_img_merger:
             self.imgs.append(
                 IMG.open(fn))
 
-    def _hint_rect(self, im, bx, clr=(255, 0, 0, 100)):
+    def _hint(self, im, *cbs):
         cim = im.convert('RGBA')
         him = IMG.new('RGBA', cim.size)
         dr = IMGDRW.Draw(him)
-        dr.rectangle((bx[0], bx[1], bx[2], bx[3]), fill=clr)
+        for cb in cbs:
+            cb(dr)
         cim.alpha_composite(him)
         cim.show()
         return cim
+
+    def _hint_rect(self, im, bx, clr=(255, 0, 0, 100)):
+        return self._hint(im,
+            lambda dr: dr.rectangle((bx[0], bx[1], bx[2], bx[3]), fill=clr))
 
     def _cmp_window(self, src, win):
         sh, sw, *_ = src.shape
         wh, ww, *_ = win.shape
         assert sh >= wh and sw >= ww
         dif = cross_image(src, win, True)
+        #IMG.fromarray(dif / dif.max() * 255).show()
         th, tw = np.unravel_index(np.argmax(dif), dif.shape)
         #print(win.T.shape)
         #print(dif.T.shape, tw, th)
@@ -86,7 +92,7 @@ class c_img_merger:
                 break
             row = dif[tuple(cur_idx)]
             rpair = []
-            for rstep in (1, -1):
+            for rstep in (-1, 1):
                 rcur = rcent
                 rcur_pos = cur_cent.copy()
                 rv = 0
@@ -100,7 +106,7 @@ class c_img_merger:
             rseq.append(rpair)
             carea = sum(rpair) * cur_rel
             if carea > max_area:
-                #print(cur_rel, rpair, carea)
+                print(cur_rel, rpair, carea)
                 max_area = carea
                 max_box[raxis + step + 1] = cur_rel * step
                 assert max_box[raxis - step + 1] == 0
@@ -110,7 +116,7 @@ class c_img_merger:
             #    print('-', cur_rel, rpair, carea)
             cur += step
             cur_rel += 1
-        #print('max box:', max_box, cent)
+        print('max box:', max_box, cent)
         return max_box[0]+cent[1], max_box[1]+cent[0], max_box[2]+cent[1], max_box[3]+cent[0]
 
     def _cmp_cover(self, src, dst, thr = 30):
@@ -133,6 +139,7 @@ class c_img_merger:
         cbx = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
         print('cover box:', cbx)
         #self._hint_rect(dst, cbx)
+        self._hint_rect(IMG.fromarray(dif * 255), cbx)
         return cbx[:2] # only compared half window
 
     def _img_paste(self, im1, im2, wrct, cut_axes, alpha2=None):
@@ -161,6 +168,7 @@ class c_img_merger:
             for i in cut_axes:
                 crp2[i] = wrct[i] + cvtp[i]
                 s2[i] += crp2[i]
+            #self._hint_rect(im2, crp2)
             im2 = im2.crop(crp2)
         if alpha2 is None:
             rim.paste(im2, s2)
@@ -225,7 +233,7 @@ class c_img_merger:
                     wrct[1] += dwh
                     wrct[3] -= dwh
             cim2 = im2.crop(crp2)
-            self._hint_rect(cim2, wrct)
+            #self._hint_rect(cim2, wrct)
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
@@ -265,5 +273,5 @@ if __name__ == '__main__':
     im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
     r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
-    r.show()
     #r = im.merge_all()
+    #r.show()
