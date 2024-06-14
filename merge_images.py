@@ -195,32 +195,37 @@ class c_img_merger:
         max_rim = None
         max_top = None
         max_shft = None
-        for sx, sy in self._cmp_imgs(im1, im2, wrct, max_try):
-            print('shift:', (sx, sy))
-            s1 = [0, 0]
-            s2 = [0, 0]
-            if sx < 0:
-                s1[0] = -int(sx)
-            else:
-                s2[0] = int(sx)
-            if sy < 0:
-                s1[1] = -int(sy)
-            else:
-                s2[1] = int(sy)
-            rsz = (
-                max(s1[0] + im1.size[0], s2[0] + im2.size[0]),
-                max(s1[1] + im1.size[1], s2[1] + im2.size[1]))
-            crim = IMG.new('RGB', rsz)
-            crim.paste(im1, s1)
-            cvsim = crim.crop((s2[0]+wrct[0], s2[1]+wrct[1], s2[0]+wrct[2], s2[1]+wrct[3]))
-            cvim2 = im2.crop(wrct)
-            cvtp, cvarea = self._cmp_cover(cvsim, cvim2)
-            if cvarea > max_area:
-                max_area = cvarea
-                max_rim = crim
-                max_top = cvtp
-                max_shft = (s1, s2)
-                print('choose this')
+        for ss in self._cmp_imgs(im1, im2, wrct, max_try):
+            # scan 1 pixel error
+            for dx, dy in np.ndindex(3,3):
+                sx, sy = ss
+                print(f'shift: ({sx}{dx-1:+}, {sy}{dy-1:+})')
+                sx += dx - 1
+                sy += dy - 1
+                s1 = [0, 0]
+                s2 = [0, 0]
+                if sx < 0:
+                    s1[0] = -int(sx)
+                else:
+                    s2[0] = int(sx)
+                if sy < 0:
+                    s1[1] = -int(sy)
+                else:
+                    s2[1] = int(sy)
+                rsz = (
+                    max(s1[0] + im1.size[0], s2[0] + im2.size[0]),
+                    max(s1[1] + im1.size[1], s2[1] + im2.size[1]))
+                crim = IMG.new('RGB', rsz)
+                crim.paste(im1, s1)
+                cvsim = crim.crop((s2[0]+wrct[0], s2[1]+wrct[1], s2[0]+wrct[2], s2[1]+wrct[3]))
+                cvim2 = im2.crop(wrct)
+                cvtp, cvarea = self._cmp_cover(cvsim, cvim2)
+                if cvarea > max_area:
+                    max_area = cvarea
+                    max_rim = crim
+                    max_top = cvtp
+                    max_shft = (s1, s2)
+                    print('choose this')
         rim = max_rim
         s1, s2 = max_shft
         if cut_axes:
@@ -333,6 +338,6 @@ if __name__ == '__main__':
     im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
     #r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
-    r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(12)
-    #r = im.merge_all()
+    #r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(2)
+    r = im.merge_all()
     #r.show()
