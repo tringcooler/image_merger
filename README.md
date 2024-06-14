@@ -1,0 +1,1 @@
+# Python Long Image Merger
