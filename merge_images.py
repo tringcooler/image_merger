@@ -302,16 +302,22 @@ class c_img_merger:
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
-        return self._img_paste(im1, cim2, wrct, cut_axes, 5, 100)
-        #return self._img_paste(im1, cim2, wrct, cut_axes, 5)
+        #return self._img_paste(im1, cim2, wrct, cut_axes, 5, 100)
+        return self._img_paste(im1, cim2, wrct, cut_axes, 3)
 
-    def merge_all(self):
+    def merge_all(self, win=(0.8, 200)):
         cur_im = self.imgs[-1]
         for ii in range(len(self.imgs) - 2, -1, -1):
+            print(f'merging {ii} <- {ii+1}')
             src_im = self.imgs[ii]
-            cur_im = self._img_merge(src_im, cur_im, (0.8, 200))
-            cur_im.show();input()
+            cur_im = self._img_merge(src_im, cur_im, win)
+            #cur_im.show();input()
         return cur_im
+
+    def save_all(self, fn, win=(0.8, 200)):
+        rim = self.merge_all(win)
+        rim.save(fn)
+        return rim
 
 def iter_imgs(path, ext = None):
     for fn in os.listdir(path):
@@ -333,11 +339,14 @@ if __name__ == '__main__':
 
     def main(path):
         im = c_img_merger(list(iter_imgs(path, 'jpg')))
-        return im
+        r = im.save_all(os.path.join(path, 'merge_all.jpg'), (0.8, 200))
+        return im, r
     
-    im = main(wpath)
+    #im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
     #r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
     #r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(2)
-    r = im.merge_all()
+    #r = im.merge_all()
     #r.show()
+
+    im, r = main(wpath)
