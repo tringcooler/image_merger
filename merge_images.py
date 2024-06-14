@@ -37,6 +37,14 @@ def cross_image_rgb(im1, im2):
             scipy.signal.fftconvolve(im1_v, im2_v[::-1,::-1], mode='same'))
     return sum(crs)
 
+# from https://stackoverflow.com/questions/3684484/peak-detection-in-a-2d-array
+from scipy.ndimage.filters import maximum_filter
+def detect_peaks(im, sz):
+    pks = maximum_filter(im, size = sz * 2 + 1) == im
+    return np.where(pks)
+
+INF = float('inf')
+
 class c_img_merger:
 
     def __init__(self, imgs_fn):
@@ -62,11 +70,27 @@ class c_img_merger:
         return self._hint(im,
             lambda dr: dr.rectangle((bx[0], bx[1], bx[2], bx[3]), fill=clr))
 
-    def _cmp_window(self, src, win):
+    def _iter_peaks(self, im, frng, max_num):
+        fim = maximum_filter(im, size = frng * 2 + 1)
+        pim = -im
+        pim[fim != im] = INF
+        spks = pim.flatten().argsort()
+        if max_num is not None:
+            spks = spks[:max_num]
+        yield from zip(*np.unravel_index(spks, pim.shape))
+
+    def _cmp_window(self, src, win, max_num = 3):
         sh, sw, *_ = src.shape
         wh, ww, *_ = win.shape
         assert sh >= wh and sw >= ww
         dif = cross_image(src, win)
+        pks = self._iter_peaks(dif, 10, max_num)
+        def hint_pks(dr):
+            for pk in pks:
+                dpk = tuple(reversed(pk))
+                print(pk, dpk)
+                dr.point(dpk, fill=(255,0,0,200))
+        self._hint(IMG.fromarray(dif / dif.max() * 255), hint_pks)
         #dif = cross_image_rgb(src, win)
         #IMG.fromarray(dif / dif.max() * 255).show()
         th, tw = np.unravel_index(np.argmax(dif), dif.shape)
@@ -286,6 +310,6 @@ if __name__ == '__main__':
     im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
     #r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
-    #r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(12)
-    r = im.merge_all()
+    r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(1)
+    #r = im.merge_all()
     #r.show()
