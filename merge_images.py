@@ -79,21 +79,21 @@ class c_img_merger:
             spks = spks[:max_num]
         yield from zip(*np.unravel_index(spks, pim.shape))
 
-    def _cmp_window(self, src, win, max_num = 3):
+    def _cmp_window(self, src, win, max_num):
         sh, sw, *_ = src.shape
         wh, ww, *_ = win.shape
         assert sh >= wh and sw >= ww
         dif = cross_image(src, win)
-        pks = self._iter_peaks(dif, 10, max_num)
-        def hint_pks(dr):
-            for pk in pks:
-                dpk = tuple(reversed(pk))
-                print(pk, dpk)
-                dr.point(dpk, fill=(255,0,0,200))
-        self._hint(IMG.fromarray(dif / dif.max() * 255), hint_pks)
+        #pks = self._iter_peaks(dif, 10, max_num)
+        #def hint_pks(dr):
+        #    for pk in pks:
+        #        dpk = tuple(reversed(pk))
+        #        print(pk, dpk)
+        #        dr.point(dpk, fill=(255,0,0,200))
+        #self._hint(IMG.fromarray(dif / dif.max() * 255), hint_pks)
         #dif = cross_image_rgb(src, win)
         #IMG.fromarray(dif / dif.max() * 255).show()
-        th, tw = np.unravel_index(np.argmax(dif), dif.shape)
+        #th, tw = np.unravel_index(np.argmax(dif), dif.shape)
         #print(win.T.shape)
         #print(dif.T.shape, tw, th)
         #ndif = dif / dif.max() * 255
@@ -101,14 +101,19 @@ class c_img_merger:
         #pks = [(i - wh / 2, ndif[i, tw])for i in scipy.signal.find_peaks(ndif[:,tw])[0] if ndif[i, tw] > 250]
         #print(pks)
         #print(th - wh / 2, tw - ww / 2)
-        return th - wh / 2, tw - ww / 2
+        #return th - wh / 2, tw - ww / 2
+        #yield th - wh / 2, tw - ww / 2
+        for th, tw in self._iter_peaks(dif, 10, max_num):
+            yield th - wh / 2, tw - ww / 2
 
-    def _cmp_imgs(self, im1, im2, wrct):
+    def _cmp_imgs(self, im1, im2, wrct, max_num):
         src = np.array(im1)
         dst = np.array(im2)
         wx, wy, wr, wb = wrct
-        sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
-        return sx - wx, sy - wy + 1 # I don't know why, but +1 is better
+        #sy, sx = self._cmp_window(src, dst[wy:wb, wx:wr, ...])
+        #return sx - wx, sy - wy + 1 # I don't know why, but +1 is better
+        for sy, sx in self._cmp_window(src, dst[wy:wb, wx:wr, ...], max_num):
+            yield sx - wx, sy - wy
 
     def _cmp_cover_center(self, dif, cent, axis, step, thr):
         alen = dif.shape[axis]
@@ -122,6 +127,7 @@ class c_img_merger:
         max_area = 0
         max_box = [0, 0, 0, 0]
         cur_rel = 0
+        neck_pair = [INF, INF]
         while 0 <= cur < alen:
             cur_idx[axis] = cur
             cur_cent[axis] = cur
@@ -138,7 +144,10 @@ class c_img_merger:
                     if dif[tuple(rcur_pos)] > thr:
                         break
                     rv += 1
+                    if rv >= neck_pair[(rstep + 1) // 2]:
+                        break
                     rcur += rstep
+                neck_pair[(rstep + 1) // 2] = rv
                 rpair.append(rv)
             rseq.append(rpair)
             carea = sum(rpair) * cur_rel
@@ -153,8 +162,9 @@ class c_img_merger:
             #    print('-', cur_rel, rpair, carea)
             cur += step
             cur_rel += 1
-        print('max box:', max_box, cent)
-        return max_box[0]+cent[1], max_box[1]+cent[0], max_box[2]+cent[1], max_box[3]+cent[0]
+        #print('max box:', max_box, cent, 'area:', max_area)
+        dst_box = max_box[0]+cent[1], max_box[1]+cent[0], max_box[2]+cent[1], max_box[3]+cent[0]
+        return dst_box, max_area
 
     def _cmp_cover(self, src, dst, thr = 30):
         cdif = IMGCHPS.difference(src, dst)
@@ -173,37 +183,50 @@ class c_img_merger:
         #IMG.fromarray(dif * 255).show()
         #rng = [[0, dif.shape[0]], [0, dif.shape[1]]]
         #crng = self._cmp_cover_axis(dif, rng, 0)
-        cbx = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
-        print('cover box:', cbx)
+        cbx, carea = self._cmp_cover_center(dif, np.array(dif.shape) // 2, 0, -1, 0)
+        print('cover box:', cbx, 'area:', carea)
         #self._hint_rect(dst, cbx)
         #self._hint_rect(IMG.fromarray(dif * 255), cbx)
-        return cbx[:2] # only compared half window
+        #breakpoint()
+        return cbx[:2], carea # only compared half window
 
-    def _img_paste(self, im1, im2, wrct, cut_axes, alpha2=None):
-        sx, sy = self._cmp_imgs(im1, im2, wrct)
-        print('shift:', (sx, sy))
-        s1 = [0, 0]
-        s2 = [0, 0]
-        if sx < 0:
-            s1[0] = -int(sx)
-        else:
-            s2[0] = int(sx)
-        if sy < 0:
-            s1[1] = -int(sy)
-        else:
-            s2[1] = int(sy)
-        rsz = (
-            max(s1[0] + im1.size[0], s2[0] + im2.size[0]),
-            max(s1[1] + im1.size[1], s2[1] + im2.size[1]))
-        rim = IMG.new('RGB', rsz)
-        rim.paste(im1, s1)
-        if cut_axes:
-            cvsim = rim.crop((s2[0]+wrct[0], s2[1]+wrct[1], s2[0]+wrct[2], s2[1]+wrct[3]))
+    def _img_paste(self, im1, im2, wrct, cut_axes, max_try, alpha2=None):
+        max_area = -INF
+        max_rim = None
+        max_top = None
+        max_shft = None
+        for sx, sy in self._cmp_imgs(im1, im2, wrct, max_try):
+            print('shift:', (sx, sy))
+            s1 = [0, 0]
+            s2 = [0, 0]
+            if sx < 0:
+                s1[0] = -int(sx)
+            else:
+                s2[0] = int(sx)
+            if sy < 0:
+                s1[1] = -int(sy)
+            else:
+                s2[1] = int(sy)
+            rsz = (
+                max(s1[0] + im1.size[0], s2[0] + im2.size[0]),
+                max(s1[1] + im1.size[1], s2[1] + im2.size[1]))
+            crim = IMG.new('RGB', rsz)
+            crim.paste(im1, s1)
+            cvsim = crim.crop((s2[0]+wrct[0], s2[1]+wrct[1], s2[0]+wrct[2], s2[1]+wrct[3]))
             cvim2 = im2.crop(wrct)
-            cvtp = self._cmp_cover(cvsim, cvim2)
+            cvtp, cvarea = self._cmp_cover(cvsim, cvim2)
+            if cvarea > max_area:
+                max_area = cvarea
+                max_rim = crim
+                max_top = cvtp
+                max_shft = (s1, s2)
+                print('choose this')
+        rim = max_rim
+        s1, s2 = max_shft
+        if cut_axes:
             crp2 = [0, 0, *im2.size]
             for i in cut_axes:
-                crp2[i] = wrct[i] + cvtp[i]
+                crp2[i] = wrct[i] + max_top[i]
                 s2[i] += crp2[i]
             #self._hint_rect(im2, crp2)
             im2 = im2.crop(crp2)
@@ -274,15 +297,15 @@ class c_img_merger:
             #print(crp2)
         #wrct[1] = 24
         #print(wrct)
-        return self._img_paste(im1, cim2, wrct, cut_axes, 100)
-        #return self._img_paste(im1, cim2, wrct, cut_axes)
+        return self._img_paste(im1, cim2, wrct, cut_axes, 5, 100)
+        #return self._img_paste(im1, cim2, wrct, cut_axes, 5)
 
     def merge_all(self):
         cur_im = self.imgs[-1]
         for ii in range(len(self.imgs) - 2, -1, -1):
             src_im = self.imgs[ii]
             cur_im = self._img_merge(src_im, cur_im, (0.8, 200))
-            #cur_im.show();input()
+            cur_im.show();input()
         return cur_im
 
 def iter_imgs(path, ext = None):
@@ -310,6 +333,6 @@ if __name__ == '__main__':
     im = main(wpath)
     #r = im._img_merge(im.imgs[1], im.imgs[2], (0.8, (0, 307)))
     #r = im._img_merge(im.imgs[-3], im.imgs[-2], (0.8, 307))
-    r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(1)
+    r = (lambda i: im._img_merge(im.imgs[-i-2], im.imgs[-i-1], (0.8, 200)))(12)
     #r = im.merge_all()
     #r.show()
